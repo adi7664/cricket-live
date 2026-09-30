@@ -78,8 +78,9 @@ def _run_session(args, F, holder, comm, t_start):
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
         audio_out = None
     else:
-        # Two inputs: rawvideo frames on stdin (fd 0), commentary PCM on a
-        # second pipe.
+        # Three inputs: rawvideo frames on stdin (fd 0), commentary PCM on a
+        # second pipe, and a generated stadium-crowd ambience bed (lavfi) that
+        # plays softly underneath everything — even during pauses.
         ar, aw = os.pipe()
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning",
                "-f", "rawvideo", "-pix_fmt", "rgb24",
@@ -87,7 +88,13 @@ def _run_session(args, F, holder, comm, t_start):
                "-thread_queue_size", "2048",
                "-f", "s16le", "-ar", str(SAMPLE_RATE), "-ac", "2",
                "-i", f"pipe:{ar}",
-               "-map", "0:v", "-map", "1:a",
+               "-f", "lavfi",
+               "-i", ("anoisesrc=color=brown:sample_rate=44100:duration=86400,"
+                      "lowpass=f=500,volume=0.12,tremolo=f=0.2:d=0.6"),
+               "-filter_complex",
+               ("[1:a][2:a]amix=inputs=2:duration=first:"
+                "dropout_transition=0:normalize=0[aout]"),
+               "-map", "0:v", "-map", "[aout]",
                "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
                "-b:v", "2500k", "-maxrate", "3000k", "-bufsize", "6000k",
                "-pix_fmt", "yuv420p", "-g", "20",
