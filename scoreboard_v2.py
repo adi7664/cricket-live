@@ -67,11 +67,12 @@ def fetch_rich(url):
           "win_a": "", "win_a_pct": "", "win_b": "", "win_b_pct": "",
           "batters": [], "bowlers": [], "recent_overs": [], "status": ""}
 
-    m = re.search(r'<div class="mr-2">([A-Z]{2,5})</div><div><span class="mr-2">'
-                  r'<span>(\d+)</span><span><span class="mx-\[3px\]">-</span>(\d+)'
-                  r'</span></span><span class="mr-2">\(<!-- -->?([\d.]+)<!-- -->?\)</span>', seg)
-    if m:
-        st["team"], st["runs"], st["wkts"], st["overs"] = m.group(1), m.group(2), m.group(3), m.group(4)
+    score_pat = (r'<div class="mr-2">([A-Z]{2,5})</div><div><span class="mr-2">'
+                 r'<span>(\d+)</span><span><span class="mx-\[3px\]">-</span>(\d+)'
+                 r'</span></span><span class="mr-2">\(<!-- -->?([\d.]+)<!-- -->?\)</span>')
+    # Cricbuzz lists the completed 1st-innings score BEFORE the live
+    # 2nd-innings score — collect every hit, pick the current one below.
+    score_hits = list(re.finditer(score_pat, seg))
     m = re.search(r'CRR:</span><span[^>]*>([\d.]+)</span>', seg)
     if m:
         st["crr"] = m.group(1)
@@ -92,6 +93,29 @@ def fetch_rich(url):
                  "Afghanistan": "AFG", "Zimbabwe": "ZIM", "Ireland": "IRE",
                  "Netherlands": "NED", "Scotland": "SCO", "Namibia": "NAM",
                  "United States": "USA", "Italy": "ITA"}
+    if score_hits:
+        pick = score_hits[0]
+        # Figure out which team is batting NOW from the status text, e.g.
+        # "India need 262 runs" -> IND, "India won by 6 wkts" -> IND.
+        bat = None
+        sm = re.search(r'([A-Za-z ]+?)\s+need \d+ run', st["status"])
+        if sm:
+            bat = NAME2CODE.get(sm.group(1).strip(), sm.group(1).strip()[:3].upper())
+        if not bat:
+            sm = re.search(r'([A-Za-z ]+?)\s+won by', st["status"])
+            if sm:
+                bat = NAME2CODE.get(sm.group(1).strip(), sm.group(1).strip()[:3].upper())
+        if not bat:
+            sm = re.search(r'\b([A-Z]{2,5}) \d+/\d+', st["status"])
+            if sm:
+                bat = sm.group(1)
+        if bat:
+            for s in score_hits:
+                if s.group(1) == bat:
+                    pick = s
+                    break
+        st["team"], st["runs"], st["wkts"], st["overs"] = \
+            pick.group(1), pick.group(2), pick.group(3), pick.group(4)
     m = re.search(r"<title>(.*?)</title>", html, re.S | re.I)
     if m:
         t = m.group(1).strip()
