@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""AI Hindi cricket commentator for the live scoreboard stream.
+"""AI Hindi cricket commentator for the live scoreboard stream — CONTINUOUS talk.
 
 Polls Cricbuzz via scoreboard_v2.fetch_rich every POLL_SEC, detects newly
-bowled balls from recent_overs, and speaks ball-by-ball Hindi commentary
-plus filler lines (score, partnership, bowler figures, win predictor) so
-the audio keeps running continuously like a real commentator.
+bowled balls from SCORE DELTAS (monotonic, reliable — the recent-overs
+strip reorders/replays old balls so it is only a hint), and speaks
+ball-by-ball Hindi commentary plus rich filler combos so the audio runs
+continuously like a real human commentator.
+
+Every utterance is 2-4 sentences (~15-25s of speech); a filler starts if
+the mic has been quiet for FILLER_GAP seconds, so there is almost no
+silence.
 
 Architecture (decoupled, non-blocking):
   - Commentator thread (poll): only enqueues TEXT into text_q — never
@@ -19,7 +24,6 @@ Architecture (decoupled, non-blocking):
 import os
 import queue
 import random
-import re
 import subprocess
 import tempfile
 import threading
@@ -30,61 +34,88 @@ from scoreboard_v2 import fetch_rich
 VOICE = "hi-IN-MadhurNeural"
 POLL_SEC = 15
 SAMPLE_RATE = 44100
-MAX_PENDING = 6          # drop new clips beyond this (avoid stale backlog)
-SILENCE_PAD = 0.35       # seconds of silence around each clip
-FILLER_GAP = 20          # speak a filler if quiet longer than this (seconds)
+MAX_PENDING = 3          # cap queued clips (keeps commentary fresh)
+SILENCE_PAD = 0.3        # seconds of silence around each clip
+FILLER_GAP = 5           # chain next clip before current ends -> seamless
+CHECK_SEC = 2            # filler check cadence (fetch still every POLL_SEC)
 MIN_PCM_SEC = 0.8        # discard decoded clips shorter than this (truncated)
 
-LINES = {
+# Long, chatty ball-by-ball lines (2-4 sentences each, ~15-25s of speech).
+BALL_LINES = {
     "4": [
-        "Chauka! {bat} ne {bowl} ki gend ko seema rekha ke paar bhej diya! Chaar run!",
-        "Kya khoobsurat shot hai! {bat} ke balle se nikla ye chauka!",
-        "Chaaron khane chitt! {bat} ka shandaar chauka!",
+        "Chauka! {bat} ne {bowl} ki gend ko seema rekha ke paar bhej diya! "
+        "Kya lajawaab timing thi is shot mein! Score pahunch gaya {team} ka "
+        "{runs} par {wkts}.",
+        "Chaaron khane chitt! {bat} ka shandaar chauka, darshakon mein khushi "
+        "ki lehar daud gayi hai! {bat} ab {br} run par khel rahe hain, kya "
+        "form mein hain!",
     ],
     "6": [
-        "Chhakka! {bat} ka vishaal chhakka! Gend seedhi darshakon mein ja giri!",
-        "Kya shot hai! {bat} ne {bowl} ki gend ko stand ke paar pahunchaya! Chhe run!",
-        "Lamba chhakka! {bat} ne dikhaya apna dam!",
+        "Chhakka! {bat} ka vishaal chhakka! Gend seedhi stand mein ja giri! "
+        "Taqat aur timing ka behtareen namuna! {team} ka score ab {runs} par "
+        "{wkts}.",
+        "Kya shot hai! {bat} ne {bowl} ki gend ko aasman ki sair kara di! "
+        "Chhe run! Stadium mein shor mach gaya hai, {bat} {br} run par "
+        "pahunch gaye!",
     ],
     "w": [
-        "Wicket! {bat} out ho gaye! {bowl} ko mili ye keemti wicket!",
-        "Badi safalta! {bat} ko pavilion ka rasta dikhaya {bowl} ne!",
+        "Wicket! {bat} out ho gaye! {bowl} ko mili ye keemti safalta! "
+        "Ballebaaz mayus hokar pavilion laut rahe hain. Score hai {team} ka "
+        "{runs} par {wkts}.",
+        "Badi safalta {bowl} ke liye! {bat} ko pavilion ka rasta dikhaya! "
+        "Ye wicket match ka rukh badal sakti hai, dekhte hain naye ballebaaz "
+        "kya karte hain.",
     ],
     "0": [
-        "Koi run nahi. {bowl} ki kasi hui gend.",
-        "Behtareen gend {bowl} ki, {bat} beaten hue.",
-        "Dot ball! Dabav badhta hua ballebazon par.",
+        "Koi run nahi. {bowl} ki kasi hui gend, {bat} poori tarah beaten hue. "
+        "Behtareen line aur length ka muzahira. Dabav badhta hua ballebazon "
+        "par.",
+        "Dot ball! {bowl} ne {bat} ko khulne ka mauka nahi diya. Run rate "
+        "{crr} ka hai, aur ye lagataar dabav wicket dila sakta hai.",
     ],
     "1": [
-        "Ek run, {bat} ne halke haathon se khela.",
-        "Ek run ka izafa score mein.",
+        "Ek run, {bat} ne halke haathon se khela. Score mein ek run ka izafa, "
+        "{team} {runs} par {wkts}. {bat} {br} run par pahunch gaye hain.",
+        "Ek run ka izafa score mein. {bat} ne samajhdaari se strike apne paas "
+        "rakhi. Sajhedari dheere dheere aage badh rahi hai, {runs} par {wkts}.",
     ],
     "2": [
-        "Do run! Wicketon ke beech tez daud.",
-        "Achhi running, do run jod liye {bat} ne.",
+        "Do run! Wicketon ke beech tez daud ka behtareen namuna! {bat} ne do "
+        "run jod liye. Fielders thode sust nazar aaye is baar.",
+        "Achhi running! {bat} ne {bowl} ki gend par do run chura liye. Score "
+        "{runs} par {wkts}, {overs} over ka khel ho chuka hai.",
     ],
     "3": [
-        "Teen run! Gend seema rekha se just pehle ruk gayi.",
+        "Teen run! Gend seema rekha se just pehle ruk gayi! Fielder ne "
+        "bahaduri se chauke ko roka. {bat} ki mehnat rang laayi, teen run "
+        "mile. Score {runs} par {wkts}.",
     ],
     "wd": [
-        "Wide gend, atirikt run milega.",
-        "Line se bhatke {bowl}, wide ka ishara umpire ka.",
+        "Wide gend! {bowl} line se bhatke, umpire ka ishara wide ka. Atirikt "
+        "run milega aur gend dobara daalni hogi. Ballebazon ko muft ka run "
+        "tohfe mein mila.",
+        "Line se bhatke {bowl}! Wide ka ishara! Dabav mein gendbaaz ki ye "
+        "ghalti, atirikt run ke saath score aage badhega.",
     ],
     "nb": [
-        "No ball! Atirikt run, aur agli gend free hit hogi!",
-        "Umpire ka ishara, ye no ball hai!",
-    ],
-    "by": [
-        "Bye ka run.",
+        "No ball! {bowl} se badi ghalti ho gayi! Atirikt run ke saath saath "
+        "agli gend free hit hogi. {bat} ke paas bada shot khelne ka sunahra "
+        "mauka hai.",
+        "Umpire ka ishara, ye no ball hai! {bowl} ne had paar kar di. "
+        "Ballebaaz khush honge, free hit par bada shot lagbhag pakka hai.",
     ],
 }
 
 FILLER_GENERIC = [
-    "Doston, match ka romanch apne urooj par hai. Jude rahiye hamare saath.",
-    "Gendbaaz line-length par mehnat kar rahe hain, ballebaaz sambhal kar khel rahe hain.",
-    "Stadium mein zabardast mahaul hai, darshakon ka josh dekhne layak hai.",
-    "Agli gend ka intezaar hai, dekhte hain ballebaaz is baar kya karte hain.",
-    "Fielding team ke kaptan ne field mein thodi tabdeeli ki hai.",
+    "Doston, match ka romanch apne urooj par hai. Stadium mein darshakon ka "
+    "josh dekhne layak hai. Jude rahiye hamare saath, har gend ki taaza "
+    "khabar yahin milegi.",
+    "Gendbaaz line-length par mehnat kar rahe hain, ballebaaz sambhal kar "
+    "khel rahe hain. Fielding team ke kaptan ne field mein thodi tabdeeli ki "
+    "hai. Dekhte hain iska kya asar hota hai.",
+    "Pitch se gendbaazon ko thodi madad mil rahi hai, isliye ballebazon ko "
+    "sambhal kar khelna pad raha hai. Agle kuch over mein run rate par nazar "
+    "rahegi.",
 ]
 
 
@@ -120,7 +151,7 @@ def _tts_pcm(text):
                 mp3 = f.name
             cp = subprocess.run(
                 ["edge-tts", "--voice", VOICE, "--text", text, "--write-media", mp3],
-                capture_output=True, timeout=40)
+                capture_output=True, timeout=60)
             if (cp.returncode != 0 or not os.path.exists(mp3)
                     or os.path.getsize(mp3) == 0):
                 time.sleep(1)
@@ -129,7 +160,7 @@ def _tts_pcm(text):
                 ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", mp3,
                  "-filter:a", "volume=1.5", "-f", "s16le",
                  "-ar", str(SAMPLE_RATE), "-ac", "2", "-"],
-                capture_output=True, timeout=40)
+                capture_output=True, timeout=60)
             pcm = cp2.stdout or b""
             if len(pcm) >= min_bytes:
                 return pcm
@@ -169,6 +200,7 @@ class Commentator(threading.Thread):
         self._end_announced = False
         self._filler_idx = 0
         self._last_queued = time.time()
+        self._cached_st = None
         threading.Thread(target=self._synth_worker, daemon=True).start()
 
     # -- synthesis worker ----------------------------------------------
@@ -205,44 +237,79 @@ class Commentator(threading.Thread):
                     bowlers[0]["name"] if bowlers else "gendbaaz")
         return bat, bowl
 
+    def _ctx(self, st, bat, bowl):
+        batters = st.get("batters") or []
+        sb = next((b for b in batters if b.get("striker")),
+                  batters[0] if batters else {})
+        return {"bat": bat, "bowl": bowl,
+                "team": st.get("team"), "runs": st.get("runs"),
+                "wkts": st.get("wkts"), "overs": st.get("overs"),
+                "crr": st.get("crr") or "",
+                "br": sb.get("r", ""), "bb": sb.get("b", "")}
+
     def _filler(self, st):
+        """3-sentence filler combos — score, players, analysis, atmosphere."""
+        team, runs, wkts = st.get("team"), st.get("runs"), st.get("wkts")
+        overs, crr = st.get("overs"), st.get("crr") or ""
         c = []
-        team, runs, wkts = st["team"], st["runs"], st["wkts"]
-        overs, crr = st.get("overs"), st.get("crr")
-        if runs:
-            c.append(f"Taaza score hai {team}, {runs} par {wkts}, {overs} over mein."
-                     + (f" Run rate {crr} ka." if crr else ""))
         batters = st.get("batters") or []
         if len(batters) >= 2:
-            c.append(f"{batters[0]['name']} aur {batters[1]['name']} "
-                     f"crease par maujood hain.")
+            c.append(
+                f"Taaza score hai {team}, {runs} par {wkts}, {overs} over mein. "
+                f"Run rate {crr} ka chal raha hai. {batters[0]['name']} aur "
+                f"{batters[1]['name']} crease par datt kar khel rahe hain, "
+                f"sajhedari aham hoti ja rahi hai.")
         try:
             top = max(batters, key=lambda x: int(x.get("r") or 0))
-            c.append(f"{top['name']} {top['r']} run par khel rahe hain.")
+            cur = [b for b in (st.get("bowlers") or []) if b.get("cur")]
+            if cur:
+                bw = cur[0]
+                c.append(
+                    f"{top['name']} {top['r']} run par khel rahe hain, ye pari "
+                    f"team ke liye bahut aham hai. {bw['name']} ka spell ab tak "
+                    f"{bw['o']} over mein {bw['r']} run dekar {bw['w']} wicket ka "
+                    f"raha hai. Gend thodi purani ho chuki hai, dekhte hain "
+                    f"spinners ko kitni madad milti hai.")
         except Exception:
             pass
-        cur = [b for b in (st.get("bowlers") or []) if b.get("cur")]
-        if cur:
-            bw = cur[0]
-            c.append(f"{bw['name']} ka spell ab tak, {bw['o']} over mein "
-                     f"{bw['r']} run dekar {bw['w']} wicket.")
         wa, wap = st.get("win_a"), st.get("win_a_pct")
         wb, wbp = st.get("win_b"), st.get("win_b_pct")
         if wa and wap:
-            c.append(f"Jeet ke chances is waqt, {wa} {wap} feesad, {wb} {wbp} feesad.")
+            c.append(
+                f"Jeet ke chances is waqt {wa} {wap} feesad aur {wb} {wbp} feesad "
+                f"hain. Match abhi poori tarah khula hua hai, aur agle kuch over "
+                f"is mukable ka rukh tay karenge. Dono teamon ke khaimon mein "
+                f"bechaini saaf dekhi ja sakti hai.")
+        if runs:
+            c.append(
+                f"Score hai {team} ka {runs} par {wkts}, {overs} over ka khel ho "
+                f"chuka hai. Ballebazon ki nazar ab bade shoton par hai, jabke "
+                f"gendbaaz wicket ki talaash mein hain. Crowd ka josh urooj par "
+                f"hai.")
         c.extend(FILLER_GENERIC)
         line = c[self._filler_idx % len(c)]
         self._filler_idx += 1
         return line
 
-    # -- main poll loop ---------------------------------------------------
+    # -- main loop ------------------------------------------------------
     def run(self):
+        # Ball events are fetched every POLL_SEC; the filler check runs every
+        # CHECK_SEC so the next clip is synthesized BEFORE the current one
+        # ends -> near-seamless continuous talk.
+        last_fetch = 0.0
         while True:
             try:
-                self._poll()
+                now = time.time()
+                if now - last_fetch >= POLL_SEC:
+                    last_fetch = now
+                    self._poll()
+                elif (self._welcomed and self._cached_st
+                        and now - self._last_queued > FILLER_GAP
+                        and self.audio_q.qsize() < 2):
+                    self._enqueue(self._filler(self._cached_st), is_filler=True)
             except Exception as e:
-                print(f"commentator poll failed: {e}", flush=True)
-            time.sleep(POLL_SEC)
+                print(f"commentator loop failed: {e}", flush=True)
+            time.sleep(CHECK_SEC)
 
     def _poll(self):
         # Event source = SCORE DELTAS (monotonic, reliable). The Cricbuzz
@@ -251,6 +318,7 @@ class Commentator(threading.Thread):
         st = fetch_rich(self.url)
         if not st.get("runs"):
             return
+        self._cached_st = st
         team = st["team"]
         try:
             runs, wkts = int(st["runs"]), int(st["wkts"])
@@ -264,9 +332,11 @@ class Commentator(threading.Thread):
             self._welcomed = True
             self._last = (team, runs, wkts, balls)
             title = st.get("match_title") or "is mukable"
-            self._enqueue(f"Namaskar doston! {title} mein AI Hindi commentary ke saath "
-                          f"aapka swagat hai. Taaza score hai {team}, {runs} par {wkts}, "
-                          f"{st.get('overs')} over mein.")
+            self._enqueue(
+                f"Namaskar doston! {title} mein AI Hindi commentary ke saath "
+                f"aapka swagat hai. Taaza score hai {team}, {runs} par {wkts}, "
+                f"{st.get('overs')} over mein. Main aapko har gend ki taaza "
+                f"khabar dunga, jude rahiye hamare saath.")
             return
 
         lt, lr, lw, lb = self._last
@@ -275,7 +345,8 @@ class Commentator(threading.Thread):
         if team != lt or balls < lb - 6:
             self._last = (team, runs, wkts, balls)
             self._end_announced = False
-            self._enqueue(f"Nayi pari ka aaghaaz! {team} ki ballebazi shuru ho chuki hai.")
+            self._enqueue(f"Nayi pari ka aaghaaz! {team} ki ballebazi shuru ho "
+                          f"chuki hai. Dekhte hain is pari mein kya hota hai.")
             return
 
         # match end?
@@ -294,36 +365,38 @@ class Commentator(threading.Thread):
             self._last = (team, runs, wkts, balls)
             return
 
-        # No change -> filler keeps the commentary running like a real one.
+        # No change -> the run() loop's filler check keeps talk continuous.
         if db == 0 and dr == 0 and dw == 0:
-            if time.time() - self._last_queued > FILLER_GAP:
-                self._enqueue(self._filler(st), is_filler=True)
             return
 
         bat, bowl = self._names(st)
+        ctx = self._ctx(st, bat, bowl)
         hint = _latest_token(st.get("recent_overs"))
         if dw > 0:
-            line = random.choice(LINES["w"]).format(bat=bat, bowl=bowl)
+            line = random.choice(BALL_LINES["w"]).format(**ctx)
         elif db == 0:
             # extra without a legal ball: wide or no-ball
             key = "nb" if hint == "nb" else "wd"
-            line = random.choice(LINES[key]).format(bat=bat, bowl=bowl)
+            line = random.choice(BALL_LINES[key]).format(**ctx)
         elif dr == 6:
-            line = random.choice(LINES["6"]).format(bat=bat, bowl=bowl)
+            line = random.choice(BALL_LINES["6"]).format(**ctx)
         elif dr == 4:
-            line = random.choice(LINES["4"]).format(bat=bat, bowl=bowl)
+            line = random.choice(BALL_LINES["4"]).format(**ctx)
         elif dr > 6:
-            line = f"{dr} run! {bat} ki tez daud ka kamaal!"
+            line = (f"{dr} run! {bat} ki tez daud ka kamaal! Fielders gend ke "
+                    f"peeche bhaagte reh gaye. Score {runs} par {wkts}.")
         elif dr == 5:
-            line = f"Paanch run! {bat} ne tez daud se paanch run jod liye!"
+            line = (f"Paanch run! {bat} ne tez daud se paanch run jod liye! "
+                    f"Kya running hai wicketon ke beech!")
         elif dr >= 1:
-            line = random.choice(LINES[str(dr)]).format(bat=bat, bowl=bowl)
+            line = random.choice(BALL_LINES[str(dr)]).format(**ctx)
         else:
-            line = random.choice(LINES["0"]).format(bat=bat, bowl=bowl)
+            line = random.choice(BALL_LINES["0"]).format(**ctx)
         self._enqueue(line)
         self._last = (team, runs, wkts, balls)
 
         # over summary when an over completes
         if balls // 6 > lb // 6:
             self._enqueue(f"{balls // 6} over ki samapti. Score hai {team}, "
-                          f"{runs} par {wkts}.")
+                          f"{runs} par {wkts}. Agle over mein dekhte hain kya "
+                          f"hota hai.")
