@@ -12,11 +12,15 @@ Local test (no RTMP):
     python stream_v2.py --cricbuzz-url "<url>" --test-out /tmp/test.mp4 --duration 30
 """
 import argparse
+import os
+import queue
 import subprocess
 import sys
+import threading
 import time
 
 from scoreboard_v2 import W, H, FPS, fetch_rich, load_fonts, render_v2
+from commentary import Commentator, SAMPLE_RATE
 
 REFRESH_SEC = 20
 
@@ -54,18 +58,62 @@ def main():
         if not args.rtmp:
             print("ERROR: --rtmp is required for live streaming", file=sys.stderr)
             sys.exit(2)
+        # Two inputs: rawvideo frames on stdin (fd 0), commentary PCM on a
+        # second pipe. Audio pump below writes realtime-paced s16le audio
+        # (commentary clips, silence otherwise) so A/V stay in sync.
+        ar, aw = os.pipe()
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning",
                "-f", "rawvideo", "-pix_fmt", "rgb24",
                "-s", f"{W}x{H}", "-framerate", str(FPS), "-i", "-",
-               "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+               "-f", "s16le", "-ar", str(SAMPLE_RATE), "-ac", "2",
+               "-i", f"pipe:{ar}",
+               "-map", "0:v", "-map", "1:a",
                "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
                "-b:v", "2500k", "-maxrate", "3000k", "-bufsize", "6000k",
                "-pix_fmt", "yuv420p", "-g", "20",
-               "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+               "-c:a", "aac", "-b:a", "128k", "-ar", str(SAMPLE_RATE),
                "-f", "flv", args.rtmp]
 
     print("starting ffmpeg...", flush=True)
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    if args.test_out:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        audio_out = None
+        comm = None
+    else:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, pass_fds=(ar,))
+        os.close(ar)
+        audio_out = os.fdopen(aw, "wb")
+        comm = Commentator(args.cricbuzz_url)
+        comm.start()
+
+        def _audio_pump():
+            frame = (SAMPLE_RATE // 10) * 4  # 0.1s of stereo s16le
+            pending = b""
+            t0 = time.time()
+            written = 0
+            while True:
+                if len(pending) < frame:
+                    try:
+                        pending += comm.q.get(timeout=0.05)
+                    except queue.Empty:
+                        pass
+                elapsed = time.time() - t0
+                target = int(elapsed * SAMPLE_RATE * 4)
+                while written < target:
+                    if len(pending) >= frame:
+                        out, pending = pending[:frame], pending[frame:]
+                    else:
+                        out = pending + b"\x00" * (frame - len(pending))
+                        pending = b""
+                    try:
+                        audio_out.write(out)
+                        audio_out.flush()
+                    except (BrokenPipeError, ValueError, OSError):
+                        return
+                    written += frame
+                time.sleep(0.02)
+
+        threading.Thread(target=_audio_pump, daemon=True).start()
 
     frame_dt = 1.0 / FPS
     start = time.time()
@@ -103,6 +151,11 @@ def main():
     finally:
         try:
             proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            if audio_out:
+                audio_out.close()
         except Exception:
             pass
         proc.wait(timeout=30)
