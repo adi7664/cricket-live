@@ -1,5 +1,6 @@
 name: Live Score Stream
 
+
 on:
   workflow_dispatch:
     inputs:
@@ -15,6 +16,7 @@ on:
         required: false
         default: ""
 
+
 jobs:
   stream:
     runs-on: ubuntu-latest
@@ -22,11 +24,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
+
       - name: Install Python deps
-        run: pip install requests pillow
+        run: pip install requests pillow edge-tts
+
 
       - name: Stream to YouTube
         run: >
