@@ -1,0 +1,35 @@
+name: Live Score Stream
+
+on:
+  workflow_dispatch:
+    inputs:
+      cricbuzz_url:
+        description: "Cricbuzz live-scores page URL"
+        required: true
+      match_title:
+        description: "(Optional now — auto-detected from Cricbuzz)"
+        required: false
+        default: ""
+      subtitle:
+        description: "(Optional now — auto-detected from Cricbuzz)"
+        required: false
+        default: ""
+
+jobs:
+  stream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Python deps
+        run: pip install requests pillow
+
+      - name: Stream to YouTube
+        run: >
+          python stream_v2.py
+          --cricbuzz-url "${{ inputs.cricbuzz_url }}"
+          --rtmp "${{ secrets.YT_RTMP }}"
