@@ -30,7 +30,6 @@ TEAM_NAMES = {
     "IRE": "IRELAND", "WIW": "WEST INDIES W", "ZIMW": "ZIMBABWE W", "INDW": "INDIA W",
 }
 
-
 def load_fonts():
     def f(name, sz):
         return ImageFont.truetype(f"/usr/share/fonts/truetype/dejavu/{name}.ttf", sz)
@@ -45,14 +44,12 @@ def load_fonts():
         "tiny_r": f("DejaVuSans", 22),
     }
 
-
 # ---------------- data ----------------
 
 def _parts(html_seg):
     txt = re.sub(r"<[^>]+>", "|", html_seg)
     txt = re.sub(r"\|+", "|", txt)
     return [p.strip() for p in txt.split("|") if p.strip()]
-
 
 def fetch_rich(url):
     """Scrape rich live data from a Cricbuzz live-scores page."""
@@ -110,10 +107,15 @@ def fetch_rich(url):
             if sm:
                 bat = sm.group(1)
         if bat:
+            bat_full = TEAM_NAMES.get(bat, "").upper()
+            matched = False
             for s in score_hits:
-                if s.group(1) == bat:
+                if TEAM_NAMES.get(s.group(1), "").upper() == bat_full:
                     pick = s
+                    matched = True
                     break
+            if not matched:
+                print(f"innings pick failed for {bat}, falling back to first hit")
         st["team"], st["runs"], st["wkts"], st["overs"] = \
             pick.group(1), pick.group(2), pick.group(3), pick.group(4)
     m = re.search(r"<title>(.*?)</title>", html, re.S | re.I)
@@ -217,7 +219,6 @@ def fetch_rich(url):
 
     return st
 
-
 # ---------------- drawing ----------------
 
 RED = (178, 20, 20)
@@ -227,10 +228,8 @@ NAVY2 = (26, 34, 56)
 BLUE = (0, 144, 255)
 WIRED = (226, 60, 60)
 
-
 def _rr(d, box, radius, fill, outline=None, width=1):
     d.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
-
 
 def base_scene():
     """Static cartoon stadium scene (cached, drawn once)."""
@@ -261,9 +260,7 @@ def base_scene():
         d.rectangle([sx - 3, 560, sx + 3, 620], fill=(240, 220, 160))
     return img
 
-
 _BASE = None
-
 
 def draw_background(img, frame_no):
     """Animated layer over the cached static scene: floodlight pulse + flying ball."""
@@ -286,7 +283,6 @@ def draw_background(img, frame_no):
               outline=(200, 40, 40), width=3)
     return img
 
-
 def ball_chip(d, x, y, tok, F):
     s = 34
     fill = (52, 62, 88)
@@ -302,7 +298,6 @@ def ball_chip(d, x, y, tok, F):
     _rr(d, [x, y, x + s, y + s], 8, fill)
     d.text((x + s / 2, y + s / 2), tok, font=F["tiny"], anchor="mm", fill=fg)
     return s + 8
-
 
 def render_v2(st, F, frame_no=0):
     img = Image.new("RGB", (W, H), (10, 14, 26))
@@ -409,7 +404,6 @@ def render_v2(st, F, frame_no=0):
 
     return img
 
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cricbuzz-url", required=True)
@@ -425,7 +419,6 @@ def main():
     img = render_v2(st, F, args.frame)
     img.save(args.out)
     print("saved", args.out)
-
 
 if __name__ == "__main__":
     main()
