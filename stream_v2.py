@@ -34,32 +34,36 @@ REFRESH_SEC = 20
 
 
 def _audio_pump(audio_out, comm):
-    """Write realtime-paced stereo s16le audio: commentary clips, else silence."""
+    """Write sleep-paced stereo s16le audio: commentary clips, else silence.
+
+    Exactly 0.1s of audio per 0.1s of wall time — no bursts, so ffmpeg's
+    input queue never blocks and no audio is chopped.
+    """
     frame = (SAMPLE_RATE // 10) * 4  # 0.1s of stereo s16le
     pending = b""
-    t0 = time.time()
-    written = 0
+    next_t = time.time()
     while True:
         if len(pending) < frame:
             try:
-                pending += comm.q.get(timeout=0.05)
+                pending += comm.audio_q.get(timeout=0.05)
             except queue.Empty:
                 pass
-        elapsed = time.time() - t0
-        target = int(elapsed * SAMPLE_RATE * 4)
-        while written < target:
-            if len(pending) >= frame:
-                out, pending = pending[:frame], pending[frame:]
-            else:
-                out = pending + b"\x00" * (frame - len(pending))
-                pending = b""
-            try:
-                audio_out.write(out)
-                audio_out.flush()
-            except (BrokenPipeError, ValueError, OSError):
-                return
-            written += frame
-        time.sleep(0.02)
+        if len(pending) >= frame:
+            out, pending = pending[:frame], pending[frame:]
+        else:
+            out = pending + b"\x00" * (frame - len(pending))
+            pending = b""
+        try:
+            audio_out.write(out)
+            audio_out.flush()
+        except (BrokenPipeError, ValueError, OSError):
+            return
+        next_t += 0.1
+        delay = next_t - time.time()
+        if delay > 0:
+            time.sleep(delay)
+        else:
+            next_t = time.time()  # don't spiral after a stall
 
 
 def _run_session(args, F, holder, comm, t_start):
@@ -80,6 +84,7 @@ def _run_session(args, F, holder, comm, t_start):
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning",
                "-f", "rawvideo", "-pix_fmt", "rgb24",
                "-s", f"{W}x{H}", "-framerate", str(FPS), "-i", "-",
+               "-thread_queue_size", "2048",
                "-f", "s16le", "-ar", str(SAMPLE_RATE), "-ac", "2",
                "-i", f"pipe:{ar}",
                "-map", "0:v", "-map", "1:a",
