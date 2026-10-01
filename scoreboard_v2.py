@@ -30,6 +30,14 @@ TEAM_NAMES = {
     "IRE": "IRELAND", "WIW": "WEST INDIES W", "ZIMW": "ZIMBABWE W", "INDW": "INDIA W",
 }
 
+RAIN_KEYWORDS = ("rain", "drizzle", "shower", "wet outfield", "stops play",
+                 "play stopped", "delayed", "delay", "interrupted")
+
+def is_rain_delay(status):
+    """True when the Cricbuzz status text indicates a rain interruption."""
+    s = (status or "").lower()
+    return any(k in s for k in RAIN_KEYWORDS)
+
 def load_fonts():
     def f(name, sz):
         return ImageFont.truetype(f"/usr/share/fonts/truetype/dejavu/{name}.ttf", sz)
@@ -299,10 +307,70 @@ def ball_chip(d, x, y, tok, F):
     d.text((x + s / 2, y + s / 2), tok, font=F["tiny"], anchor="mm", fill=fg)
     return s + 8
 
+def draw_rain_scene(img, st, F, frame_no):
+    """Full-frame rain-delay scene: storm-darkened stadium, pitch under
+    covers, animated rain + occasional lightning, centered info panel."""
+    # storm-darken the stadium background
+    img = Image.blend(img, Image.new("RGB", (W, H), (8, 12, 28)), 0.62)
+    d = ImageDraw.Draw(img)
+    # dark cloud band
+    d.rectangle([0, 0, W, 150], fill=(16, 22, 40))
+    for cx in range(-60, W + 60, 240):
+        d.ellipse([cx, 10, cx + 260, 150], fill=(22, 30, 52))
+    # pitch covers
+    _rr(d, [W / 2 - 190, 445, W / 2 + 190, 705], 26, (46, 68, 58),
+        outline=(28, 42, 34), width=3)
+    for fy in (510, 575, 640):
+        d.line([(W / 2 - 170, fy), (W / 2 + 170, fy)], fill=(36, 54, 46), width=2)
+    d.text((W / 2, 678), "PITCH UNDER COVERS", font=F["tiny"],
+           anchor="mm", fill=(170, 180, 190))
+    # animated rain streaks
+    rnd = random.Random(7)
+    for i in range(160):
+        x0 = rnd.randrange(-40, W + 40)
+        spd = 14 + (i % 5) * 4
+        y0 = (rnd.randrange(0, H + 80) + frame_no * spd) % (H + 80) - 40
+        d.line([(x0, y0), (x0 - 9, y0 + 30)], fill=(168, 188, 212), width=2)
+    # occasional subtle lightning flash
+    if frame_no % 100 < 4:
+        img = Image.blend(img, Image.new("RGB", (W, H), (210, 220, 235)), 0.10)
+        d = ImageDraw.Draw(img)
+    # centered info panel
+    _rr(d, [W / 2 - 440, 80, W / 2 + 440, 420], 24, NAVY, outline=RED, width=3)
+    d.text((W / 2, 135), "RAIN DELAY", font=F["big"], anchor="mm", fill=(255, 255, 255))
+    d.text((W / 2, 190), "Baarish ki wajah se khel ruka hua hai", font=F["sm"],
+           anchor="mm", fill=GOLD)
+    team_full = TEAM_NAMES.get(st.get("team"), st.get("team") or "")
+    score_txt = f"{st['runs']}/{st['wkts']}" if st.get("runs") else "--"
+    if team_full:
+        d.text((W / 2, 240), team_full, font=F["med"], anchor="mm", fill=(170, 180, 195))
+    d.text((W / 2, 310), score_txt, font=F["huge"], anchor="mm", fill=(255, 255, 255))
+    sub2 = f"OVERS: {st.get('overs') or '--'}   CRR: {st.get('crr') or '--'}"
+    d.text((W / 2, 392), sub2, font=F["sm"], anchor="mm", fill=GOLD)
+    # branding
+    d.text((W - 40, 40), "WORLD CRICKET UPDATES", font=F["tiny_r"],
+           anchor="rm", fill=(200, 208, 220))
+    # bottom ticker (same style as normal mode)
+    d.rectangle([0, H - 56, W, H], fill=RED)
+    tick = (f"  {st['match_title']}  •  {st['subtitle']}  •  "
+            f"Barish ki taaza khabar ke liye jude rahiye  •  "
+            f"Subscribe for live cricket scores  • ")
+    tw = d.textlength(tick, font=F["sm_r"])
+    off = (frame_no * 4) % max(1, int(tw))
+    x = -off
+    while x < W:
+        d.text((x, H - 28), tick, font=F["sm_r"], anchor="lm", fill=(255, 255, 255))
+        x += tw
+    return img
+
 def render_v2(st, F, frame_no=0):
     img = Image.new("RGB", (W, H), (10, 14, 26))
     draw_background(img, frame_no)
     d = ImageDraw.Draw(img)
+
+    # rain delay: dedicated storm scene instead of the normal scoreboard
+    if is_rain_delay(st.get("status")):
+        return draw_rain_scene(img, st, F, frame_no)
 
     team_full = TEAM_NAMES.get(st["team"], st["team"])
     opp_full = ""

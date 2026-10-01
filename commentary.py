@@ -118,6 +118,41 @@ FILLER_GENERIC = [
     "rahegi.",
 ]
 
+RAIN_KEYWORDS = ("rain", "drizzle", "shower", "wet outfield", "stops play",
+                 "play stopped", "delayed", "delay", "interrupted")
+
+def _is_rain_delay(status):
+    """True when the Cricbuzz status text indicates a rain interruption."""
+    s = (status or "").lower()
+    return any(k in s for k in RAIN_KEYWORDS)
+
+# Rain-delay filler lines — interesting, accurate rain talk (2-4 sentences each).
+RAIN_FILLERS = [
+    "Doston, Korogi Sports Park mein barish ne khel rok diya hai. Pitch par "
+    "bade covers bichha diye gaye hain, aur ground staff soppers aur sponges "
+    "se outfield ka paani sukhaane mein juta hai. Umpire thodi der mein pitch "
+    "ka muaina karenge.",
+    "Yaad rahe doston, is tournament ke chaaron quarter final barish ki nazar "
+    "ho chuke hain. Agar ye semi final bhi bina kisi nateeje ke dhul gaya to "
+    "Pakistan higher seeding ki bina par final mein pahunch jayega, aur "
+    "Bangladesh ka gold medal ka sapna toot jayega.",
+    "Agar barish rukti hai aur khel dobara shuru hota hai to kam overs par "
+    "DLS ka hisaab lagoo hoga. Aise mein Bangladesh ke saamne naya target "
+    "aayega aur har gend aur bhi keemti ho jayegi. Umpire lagataar mausam par "
+    "nazar rakhe hue hain.",
+    "Dono teamon ke khiladi dressing room mein barish ke thamne ka intezaar "
+    "kar rahe hain, aur darshak bechaini se aasmaan ki taraf dekh rahe hain. "
+    "Nisshin ka ye maidan ek saal ki mehnat se baseball ground se cricket "
+    "stadium mein badla gaya tha.",
+    "Ground staff poori jaan laga raha hai — bade soppers, squeegee aur "
+    "sponges se outfield ka paani nikala ja raha hai. Umpire har kuch minute "
+    "mein pitch ka muaina kar rahe hain. Jaise hi maidan khelne layak hoga, "
+    "khiladi wapas aayenge.",
+    "Jude rahiye hamare saath doston, barish se judi har taaza khabar sabse "
+    "pehle yahin milegi. Covers kab hatenge, umpire kab muaina karenge, aur "
+    "DLS ka kya hisaab banega — sab kuch aapko yahin sunne ko milega.",
+]
+
 
 def _parse_balls(overs_str):
     """'19.1' -> 115 (total balls bowled); '19' -> 114; None on garbage."""
@@ -158,7 +193,7 @@ def _tts_pcm(text):
                 continue
             cp2 = subprocess.run(
                 ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", mp3,
-                 "-filter:a", "volume=1.5", "-f", "s16le",
+                 "-filter:a", "volume=2.0", "-f", "s16le",
                  "-ar", str(SAMPLE_RATE), "-ac", "2", "-"],
                 capture_output=True, timeout=60)
             pcm = cp2.stdout or b""
@@ -199,6 +234,8 @@ class Commentator(threading.Thread):
         self._welcomed = False
         self._end_announced = False
         self._filler_idx = 0
+        self._rain_announced = False
+        self._rain_filler_idx = 0
         self._last_queued = time.time()
         self._cached_st = None
         threading.Thread(target=self._synth_worker, daemon=True).start()
@@ -249,6 +286,8 @@ class Commentator(threading.Thread):
 
     def _filler(self, st):
         """3-sentence filler combos — score, players, analysis, atmosphere."""
+        if _is_rain_delay(st.get("status")):
+            return self._rain_filler(st)
         team, runs, wkts = st.get("team"), st.get("runs"), st.get("wkts")
         overs, crr = st.get("overs"), st.get("crr") or ""
         c = []
@@ -289,6 +328,41 @@ class Commentator(threading.Thread):
         c.extend(FILLER_GENERIC)
         line = c[self._filler_idx % len(c)]
         self._filler_idx += 1
+        return line
+
+    def _rain_filler(self, st):
+        """Rain-delay filler: covers, DLS, seeding stakes, ground staff."""
+        team = st.get("team") or "Pakistan"
+        runs, wkts = st.get("runs") or "--", st.get("wkts") or "--"
+        overs = st.get("overs") or ""
+        status = st.get("status") or ""
+        batters = st.get("batters") or []
+        crease = ""
+        if len(batters) >= 2:
+            crease = (f" {batters[0]['name']} aur {batters[1]['name']} crease par "
+                      f"the jab khel roka gaya.")
+        c = [
+            f"Doston, {status}. {team} ka score hai {runs} par {wkts}, {overs} over mein.{crease} "
+            f"Pitch par bade covers bichha diye gaye hain, aur ground staff soppers aur sponges "
+            f"se outfield ka paani sukhaane mein juta hai.",
+            "Yaad rahe doston, is tournament ke chaaron quarter final barish ki nazar ho chuke hain. "
+            "Agar ye semi final bhi bina kisi nateeje ke dhul gaya to Pakistan higher seeding ki bina par "
+            "final mein pahunch jayega, aur Bangladesh ka gold medal ka sapna toot jayega.",
+            "Agar barish rukti hai aur khel dobara shuru hota hai to kam overs par DLS ka hisaab lagoo hoga. "
+            "Aise mein Bangladesh ke saamne naya target aayega aur har gend aur bhi keemti ho jayegi. "
+            "Umpire lagataar mausam par nazar rakhe hue hain.",
+            "Dono teamon ke khiladi dressing room mein barish ke thamne ka intezaar kar rahe hain, "
+            "aur darshak bechaini se aasmaan ki taraf dekh rahe hain. Nisshin ka ye maidan ek saal ki "
+            "mehnat se baseball ground se cricket stadium mein badla gaya tha.",
+            "Ground staff poori jaan laga raha hai — bade soppers, squeegee aur sponges se outfield ka "
+            "paani nikala ja raha hai. Umpire har kuch minute mein pitch ka muaina kar rahe hain. "
+            "Jaise hi maidan khelne layak hoga, khiladi wapas aayenge.",
+            "Jude rahiye hamare saath doston, barish se judi har taaza khabar sabse pehle yahin milegi. "
+            "Covers kab hatenge, umpire kab muaina karenge, aur DLS ka kya hisaab banega — sab kuch "
+            "aapko yahin sunne ko milega.",
+        ]
+        line = c[self._rain_filler_idx % len(c)]
+        self._rain_filler_idx += 1
         return line
 
     # -- main loop ------------------------------------------------------
@@ -355,6 +429,24 @@ class Commentator(threading.Thread):
             self._end_announced = True
             self._enqueue(f"Match samapt! {st.get('status')}. "
                           f"AI Hindi commentary mein judne ke liye dhanyavaad!")
+            return
+
+        # rain delay? announce once, then let rain fillers do the talking
+        if _is_rain_delay(st.get("status")):
+            if not self._rain_announced:
+                self._rain_announced = True
+                self._enqueue(
+                    f"Doston, buri khabar! Barish ki wajah se khel rok diya gaya hai — "
+                    f"{st.get('status')}. {team} ka score hai {runs} par {wkts}, "
+                    f"{st.get('overs')} over mein. Pitch par covers bichha diye gaye hain. "
+                    f"Jude rahiye, barish ki har taaza khabar yahin milegi.")
+            return
+        if self._rain_announced:
+            # delay over — play resuming
+            self._rain_announced = False
+            self._enqueue(
+                "Achhi khabar doston! Barish tham gayi hai, covers hataye ja rahe hain "
+                "aur khel thodi der mein dobara shuru hoga!")
             return
 
         db, dr, dw = balls - lb, runs - lr, wkts - lw

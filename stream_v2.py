@@ -90,7 +90,7 @@ def _run_session(args, F, holder, comm, t_start):
                "-i", f"pipe:{ar}",
                "-f", "lavfi",
                "-i", ("anoisesrc=color=pink:sample_rate=44100:duration=86400,"
-                      "lowpass=f=1200,volume=0.50,tremolo=f=0.15:d=0.7"),
+                      "lowpass=f=1200,volume=0.30,tremolo=f=0.15:d=0.7"),
                "-filter_complex",
                ("[1:a][2:a]amix=inputs=2:duration=first:"
                 "dropout_transition=0:normalize=0[aout]"),
@@ -190,7 +190,7 @@ def main():
                  "win_b": "", "win_b_pct": "", "batters": [], "bowlers": [],
                  "recent_overs": [], "status": ""}
 
-    holder = {"state": state, "frames": 0, "last_fetch": 0.0}
+    holder = {"state": state, "frames": 0, "last_fetch": 0}
     comm = None
     if not args.test_out:
         comm = Commentator(args.cricbuzz_url)
