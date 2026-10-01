@@ -36,7 +36,7 @@ RAIN_KEYWORDS = ("rain", "drizzle", "shower", "wet outfield", "stops play",
 def is_rain_delay(status):
     """True when the Cricbuzz status text indicates a rain interruption."""
     s = (status or "").lower()
-    return any(k in s for k in RAIN_KEYWORDS)
+    return False if re.search(r"\b\d+\s*overs?\s+game\b", s) else any(k in s for k in RAIN_KEYWORDS)
 
 def load_fonts():
     def f(name, sz):
