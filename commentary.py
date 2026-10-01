@@ -179,7 +179,7 @@ def _tts_pcm(text):
             with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
                 mp3 = f.name
             cp = subprocess.run(
-                ["edge-tts", "--voice", VOICE, "--text", text, "--write-media", mp3],
+                ["edge-tts", "--voice", VOICE, "--rate", "+20%", "--text", text, "--write-media", mp3],
                 capture_output=True, timeout=60)
             if (cp.returncode != 0 or not os.path.exists(mp3)
                     or os.path.getsize(mp3) == 0):
