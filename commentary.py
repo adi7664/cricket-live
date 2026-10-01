@@ -29,7 +29,7 @@ import tempfile
 import threading
 import time
 
-from scoreboard_v2 import fetch_rich
+from scoreboard_v2 import fetch_rich, is_rain_delay
 
 VOICE = "hi-IN-MadhurNeural"
 POLL_SEC = 15
@@ -118,13 +118,7 @@ FILLER_GENERIC = [
     "rahegi.",
 ]
 
-RAIN_KEYWORDS = ("rain", "drizzle", "shower", "wet outfield", "stops play",
-                 "play stopped", "delayed", "delay", "interrupted")
-
-def _is_rain_delay(status):
-    """True when the Cricbuzz status text indicates a rain interruption."""
-    s = (status or "").lower()
-    return any(k in s for k in RAIN_KEYWORDS)
+# Rain detection imported from scoreboard_v2 (fixed version).
 
 # Rain-delay filler lines — interesting, accurate rain talk (2-4 sentences each).
 RAIN_FILLERS = [
@@ -132,10 +126,10 @@ RAIN_FILLERS = [
     "bade covers bichha diye gaye hain, aur ground staff soppers aur sponges "
     "se outfield ka paani sukhaane mein juta hai. Umpire thodi der mein pitch "
     "ka muaina karenge.",
-    "Yaad rahe doston, is tournament ke chaaron quarter final barish ki nazar "
-    "ho chuke hain. Agar ye semi final bhi bina kisi nateeje ke dhul gaya to "
-    "Pakistan higher seeding ki bina par final mein pahunch jayega, aur "
-    "Bangladesh ka gold medal ka sapna toot jayega.",
+    "Yaad rahe doston, barish ke mausam mein DLS ka hisaab hamesha ahem rehta "
+    "hai. Agar overs mein katauti hoti hai to chasing team ke saamne naya target "
+    "aayega, aur run rate ka har decimal final tak ka raasta tay kar sakta hai.",
+
     "Agar barish rukti hai aur khel dobara shuru hota hai to kam overs par "
     "DLS ka hisaab lagoo hoga. Aise mein Bangladesh ke saamne naya target "
     "aayega aur har gend aur bhi keemti ho jayegi. Umpire lagataar mausam par "
@@ -286,7 +280,7 @@ class Commentator(threading.Thread):
 
     def _filler(self, st):
         """3-sentence filler combos — score, players, analysis, atmosphere."""
-        if _is_rain_delay(st.get("status")):
+        if is_rain_delay(st.get("status")):
             return self._rain_filler(st)
         team, runs, wkts = st.get("team"), st.get("runs"), st.get("wkts")
         overs, crr = st.get("overs"), st.get("crr") or ""
@@ -432,7 +426,7 @@ class Commentator(threading.Thread):
             return
 
         # rain delay? announce once, then let rain fillers do the talking
-        if _is_rain_delay(st.get("status")):
+        if is_rain_delay(st.get("status")):
             if not self._rain_announced:
                 self._rain_announced = True
                 self._enqueue(
