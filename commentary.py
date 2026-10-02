@@ -36,7 +36,7 @@ POLL_SEC = 15
 SAMPLE_RATE = 44100
 MAX_PENDING = 3          # cap queued clips (keeps commentary fresh)
 SILENCE_PAD = 0.3        # seconds of silence around each clip
-FILLER_GAP = 5           # chain next clip before current ends -> seamless
+FILLER_GAP = 3           # chain next clip before current ends -> seamless
 CHECK_SEC = 2            # filler check cadence (fetch still every POLL_SEC)
 MIN_PCM_SEC = 0.8        # discard decoded clips shorter than this (truncated)
 
@@ -44,15 +44,15 @@ MIN_PCM_SEC = 0.8        # discard decoded clips shorter than this (truncated)
 BALL_LINES = {
     "4": [
         "Chauka! {bat} ne {bowl} ki gend ko seema rekha ke paar bhej diya! "
-        "Kya lajawaab timing thi is shot mein! Score pahunch gaya {team} ka "
+        "Kya adbhut timing thi is shot mein! Score pahunch gaya {team} ka "
         "{runs} par {wkts}.",
-        "Chaaron khane chitt! {bat} ka shandaar chauka, darshakon mein khushi "
+        "Chaaron khane chitt! {bat} ka shandar chauka, darshakon mein khushi "
         "ki lehar daud gayi hai! {bat} ab {br} run par khel rahe hain, kya "
         "form mein hain!",
     ],
     "6": [
         "Chhakka! {bat} ka vishaal chhakka! Gend seedhi stand mein ja giri! "
-        "Taqat aur timing ka behtareen namuna! {team} ka score ab {runs} par "
+        "Taqat aur timing ka uttam namuna! {team} ka score ab {runs} par "
         "{wkts}.",
         "Kya shot hai! {bat} ne {bowl} ki gend ko aasman ki sair kara di! "
         "Chhe run! Stadium mein shor mach gaya hai, {bat} {br} run par "
@@ -68,7 +68,7 @@ BALL_LINES = {
     ],
     "0": [
         "Koi run nahi. {bowl} ki kasi hui gend, {bat} poori tarah beaten hue. "
-        "Behtareen line aur length ka muzahira. Dabav badhta hua ballebazon "
+        "Behtareen line aur length ka pradarshan. Dabav badhta hua ballebazon "
         "par.",
         "Dot ball! {bowl} ne {bat} ko khulne ka mauka nahi diya. Run rate "
         "{crr} ka hai, aur ye lagataar dabav wicket dila sakta hai.",
@@ -77,10 +77,10 @@ BALL_LINES = {
         "Ek run, {bat} ne halke haathon se khela. Score mein ek run ka izafa, "
         "{team} {runs} par {wkts}. {bat} {br} run par pahunch gaye hain.",
         "Ek run ka izafa score mein. {bat} ne samajhdaari se strike apne paas "
-        "rakhi. Sajhedari dheere dheere aage badh rahi hai, {runs} par {wkts}.",
+        "rakhi. Saajhedaari dheere dheere aage badh rahi hai, {runs} par {wkts}.",
     ],
     "2": [
-        "Do run! Wicketon ke beech tez daud ka behtareen namuna! {bat} ne do "
+        "Do run! Wicketon ke beech tez daud ka uttam namuna! {bat} ne do "
         "run jod liye. Fielders thode sust nazar aaye is baar.",
         "Achhi running! {bat} ne {bowl} ki gend par do run chura liye. Score "
         "{runs} par {wkts}, {overs} over ka khel ho chuka hai.",
@@ -93,13 +93,13 @@ BALL_LINES = {
     "wd": [
         "Wide gend! {bowl} line se bhatke, umpire ka ishara wide ka. Atirikt "
         "run milega aur gend dobara daalni hogi. Ballebazon ko muft ka run "
-        "tohfe mein mila.",
+        "uphaar mein mila.",
         "Line se bhatke {bowl}! Wide ka ishara! Dabav mein gendbaaz ki ye "
-        "ghalti, atirikt run ke saath score aage badhega.",
+        "galti, atirikt run ke saath score aage badhega.",
     ],
     "nb": [
-        "No ball! {bowl} se badi ghalti ho gayi! Atirikt run ke saath saath "
-        "agli gend free hit hogi. {bat} ke paas bada shot khelne ka sunahra "
+        "No ball! {bowl} se badi galti ho gayi! Atirikt run ke saath saath "
+        "agli gend free hit hogi. {bat} ke paas bada shot khelne ka sunahara "
         "mauka hai.",
         "Umpire ka ishara, ye no ball hai! {bowl} ne had paar kar di. "
         "Ballebaaz khush honge, free hit par bada shot lagbhag pakka hai.",
@@ -107,7 +107,7 @@ BALL_LINES = {
 }
 
 FILLER_GENERIC = [
-    "Doston, match ka romanch apne urooj par hai. Stadium mein darshakon ka "
+    "Doston, match ka romanch apne charam par hai. Stadium mein darshakon ka "
     "josh dekhne layak hai. Jude rahiye hamare saath, har gend ki taaza "
     "khabar yahin milegi.",
     "Gendbaaz line-length par mehnat kar rahe hain, ballebaaz sambhal kar "
@@ -116,6 +116,15 @@ FILLER_GENERIC = [
     "Pitch se gendbaazon ko thodi madad mil rahi hai, isliye ballebazon ko "
     "sambhal kar khelna pad raha hai. Agle kuch over mein run rate par nazar "
     "rahegi.",
+    "Doston, maidan mein tanaav badhta ja raha hai. Har gend ke saath "
+    "darshakon ki dhadkanein tez ho rahi hain. Kaun maarega baazi, ye dekhna "
+    "dilchasp hoga!",
+    "Gendbaaz apne run-up par wapas aa rahe hain. Fielders chaukas hain, "
+    "kaptan ne gehri field sajaayi hai. Ballebaaz bade shot ki talaash mein!",
+    "Asian Games ka ye mahamukabla itihaas rachne ja raha hai. Padak ki race "
+    "mein har gend ahem hai. Dabav dono shiviron mein saaf dikh raha hai!",
+    "Stadium mein darshakon ka shor lagataar badh raha hai. Dhol-nagaade baj "
+    "rahe hain, jhande lehra rahe hain. Kya mahaul hai doston!",
 ]
 
 # Rain detection imported from scoreboard_v2 (fixed version).
@@ -125,7 +134,7 @@ RAIN_FILLERS = [
     "Doston, Korogi Sports Park mein barish ne khel rok diya hai. Pitch par "
     "bade covers bichha diye gaye hain, aur ground staff soppers aur sponges "
     "se outfield ka paani sukhaane mein juta hai. Umpire thodi der mein pitch "
-    "ka muaina karenge.",
+    "ka nireekshan karenge.",
     "Yaad rahe doston, barish ke mausam mein DLS ka hisaab hamesha ahem rehta "
     "hai. Agar overs mein katauti hoti hai to chasing team ke saamne naya target "
     "aayega, aur run rate ka har decimal final tak ka raasta tay kar sakta hai.",
@@ -140,10 +149,10 @@ RAIN_FILLERS = [
     "stadium mein badla gaya tha.",
     "Ground staff poori jaan laga raha hai — bade soppers, squeegee aur "
     "sponges se outfield ka paani nikala ja raha hai. Umpire har kuch minute "
-    "mein pitch ka muaina kar rahe hain. Jaise hi maidan khelne layak hoga, "
+    "mein pitch ka nireekshan kar rahe hain. Jaise hi maidan khelne layak hoga, "
     "khiladi wapas aayenge.",
     "Jude rahiye hamare saath doston, barish se judi har taaza khabar sabse "
-    "pehle yahin milegi. Covers kab hatenge, umpire kab muaina karenge, aur "
+    "pehle yahin milegi. Covers kab hatenge, umpire kab nireekshan karenge, aur "
     "DLS ka kya hisaab banega — sab kuch aapko yahin sunne ko milega.",
 ]
 
@@ -317,7 +326,7 @@ class Commentator(threading.Thread):
             c.append(
                 f"Score hai {team} ka {runs} par {wkts}, {overs} over ka khel ho "
                 f"chuka hai. Ballebazon ki nazar ab bade shoton par hai, jabke "
-                f"gendbaaz wicket ki talaash mein hain. Crowd ka josh urooj par "
+                f"gendbaaz wicket ki talaash mein hain. Crowd ka josh charam par "
                 f"hai.")
         c.extend(FILLER_GENERIC)
         line = c[self._filler_idx % len(c)]
@@ -349,10 +358,10 @@ class Commentator(threading.Thread):
             "aur darshak bechaini se aasmaan ki taraf dekh rahe hain. Nisshin ka ye maidan ek saal ki "
             "mehnat se baseball ground se cricket stadium mein badla gaya tha.",
             "Ground staff poori jaan laga raha hai — bade soppers, squeegee aur sponges se outfield ka "
-            "paani nikala ja raha hai. Umpire har kuch minute mein pitch ka muaina kar rahe hain. "
+            "paani nikala ja raha hai. Umpire har kuch minute mein pitch ka nireekshan kar rahe hain. "
             "Jaise hi maidan khelne layak hoga, khiladi wapas aayenge.",
             "Jude rahiye hamare saath doston, barish se judi har taaza khabar sabse pehle yahin milegi. "
-            "Covers kab hatenge, umpire kab muaina karenge, aur DLS ka kya hisaab banega — sab kuch "
+            "Covers kab hatenge, umpire kab nireekshan karenge, aur DLS ka kya hisaab banega — sab kuch "
             "aapko yahin sunne ko milega.",
         ]
         line = c[self._rain_filler_idx % len(c)]
