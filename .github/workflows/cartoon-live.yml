@@ -1,0 +1,37 @@
+---
+name: Cartoon Live Stream
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: 'Stream duration in minutes (use 1 for the 1-minute test)'
+        required: false
+        default: '1'
+      episode:
+        description: 'Episode file under assets/cartoon/ (e.g. ep7.mp4)'
+        required: false
+        default: 'ep7.mp4'
+
+jobs:
+  stream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify episode exists
+        run: |
+          ls -lh "assets/cartoon/${{ inputs.episode }}"
+          ffprobe -hide_banner -v error -show_entries stream=width,height,duration -of default=noprint_wrappers=1 "assets/cartoon/${{ inputs.episode }}"
+
+      - name: Stream to YouTube (loop)
+        env:
+          YT_KEY: ${{ secrets.CARTOON_YT_KEY }}
+        run: |
+          SECONDS=$(( ${{ inputs.duration_minutes }} * 60 ))
+          echo "Streaming cartoon for ${SECONDS}s..."
+          ffmpeg -hide_banner -loglevel warning -re -stream_loop -1 -i "assets/cartoon/${{ inputs.episode }}" -t "$SECONDS" -c:v libx264 -preset veryfast -b:v 2500k -maxrate 3000k -bufsize 6000k -pix_fmt yuv420p -g 60 -c:a aac -b:a 128k -ar 44100 -f flv "rtmp://a.rtmp.youtube.com/live2/$YT_KEY"
+          echo "Stream finished."
+---
