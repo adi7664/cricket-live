@@ -33,6 +33,16 @@ jobs:
         run: pip install requests pillow edge-tts
 
 
+      - name: Play channel intro (once)
+        continue-on-error: true
+        run: >
+          ffmpeg -hide_banner -loglevel error -re -i assets/intro.mp4
+          -vf scale=1280:720 -r 30 -c:v libx264 -preset veryfast -tune zerolatency
+          -b:v 2500k -maxrate 3000k -bufsize 6000k -pix_fmt yuv420p -g 60
+          -c:a aac -b:a 128k -ar 44100 -ac 2
+          -f flv "${{ secrets.YT_RTMP }}"
+
+
       - name: Stream to YouTube
         run: >
           python stream_v2.py
